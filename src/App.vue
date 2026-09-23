@@ -1,19 +1,26 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
+import StationMap from "./components/StationMap.vue";
+import SitingPanel from "./components/SitingPanel.vue";
+import {
+  STATUS_CANDIDATE,
+  STATUS_PENDING,
+  cancelPendingSite,
+  cycleLegacyStatus,
+  isSitingRecord,
+  markPending,
+  openSite,
+  sweepOverdue,
+  type StationRecord
+} from "./business/stationFlow";
+import { precheckBatch, type SitingDraft } from "./business/siting";
+import { loadFilter, loadStations, saveFilter, saveStations } from "./business/stationStore";
 
 type Field = {
   key: string;
   label: string;
   type?: "number" | "date" | "select";
   options?: readonly string[];
-};
-
-type RecordItem = {
-  id: string;
-  status: string;
-  notes: string;
-  createdAt: string;
-  [key: string]: string | number;
 };
 
 const project = {
@@ -102,26 +109,15 @@ function createBlank() {
   return Object.fromEntries(fields.map((field) => [field.key, field.type === "number" ? 0 : ""]));
 }
 
-function loadRecords(): RecordItem[] {
-  const raw = localStorage.getItem(project.storageKey);
-  if (!raw) {
-    return project.records.map((record, index) => ({
-      ...record,
-      id: `seed-${index + 1}`,
-      createdAt: new Date(Date.now() - index * 86400000).toISOString()
-    })) as RecordItem[];
-  }
-  try {
-    return JSON.parse(raw) as RecordItem[];
-  } catch {
-    return [];
-  }
-}
-
-const records = ref<RecordItem[]>(loadRecords());
+// 持久化：从浏览器存储加载（含逾期迁移），刷新后保留候选/待建状态与占用名额
+const records = ref<StationRecord[]>(
+  loadStations(project.records as readonly StationRecord[])
+);
 const form = reactive<Record<string, string | number>>(createBlank());
 const note = ref("");
-const filter = ref(project.filters[0]);
+const filter = ref(loadFilter(project.filters[0]));
+
+watch(filter, (value) => saveFilter(value));
 
 const filteredRecords = computed(() => {
   if (filter.value.startsWith("全部")) return records.value;
@@ -147,15 +143,10 @@ const chartRows = computed(() => statuses.map((status) => ({
 const maxChart = computed(() => Math.max(1, ...chartRows.value.map((row) => row.value)));
 
 function persist() {
-  localStorage.setItem(project.storageKey, JSON.stringify(records.value));
+  saveStations(records.value);
 }
 
-function nextStatus(status: string) {
-  const index = statuses.indexOf(status);
-  return statuses[(index + 1) % statuses.length];
-}
-
-function primaryText(record: RecordItem) {
+function primaryText(record: StationRecord) {
   const first = fields[0];
   const second = fields[1];
   return [record[first.key], record[second.key]].filter(Boolean).join(" / ") || project.entityLabel;
@@ -169,7 +160,7 @@ function submit() {
       status: statuses[0],
       notes: note.value || "暂无备注",
       createdAt: new Date().toISOString()
-    } as RecordItem,
+    } as StationRecord,
     ...records.value
   ];
   Object.assign(form, createBlank());
@@ -177,13 +168,106 @@ function submit() {
   persist();
 }
 
-function flow(record: RecordItem) {
-  record.status = nextStatus(record.status);
-  persist();
+function flow(record: StationRecord) {
+  // 候选/待建走选址状态机，不参与老三态循环
+  if (cycleLegacyStatus(record)) persist();
 }
 
 function remove(id: string) {
   records.value = records.value.filter((record) => record.id !== id);
+  persist();
+}
+
+// ---- 新站选址：候选录入、整批预检、待建流转 ----
+
+const lastResults = ref<{ accepted: Set<string>; reasons: Map<string, string> }>({
+  accepted: new Set(),
+  reasons: new Map()
+});
+
+function addDraft(draft: SitingDraft) {
+  records.value = [
+    {
+      id: crypto.randomUUID(),
+      status: STATUS_CANDIDATE,
+      notes: "候选站址，待整批预检",
+      createdAt: new Date().toISOString(),
+      station: draft.station,
+      area: draft.area,
+      lat: draft.lat,
+      lng: draft.lng,
+      plannedDate: draft.plannedDate,
+      rejectReason: ""
+    },
+    ...records.value
+  ];
+  persist();
+}
+
+function runSweep(): boolean {
+  const changed = sweepOverdue(records.value);
+  if (changed.length) persist();
+  return changed.length > 0;
+}
+
+// 定时把逾期未开业的待建站转回候选，名额同步释放
+const sweepTimer = window.setInterval(runSweep, 30_000);
+onBeforeUnmount(() => window.clearInterval(sweepTimer));
+
+function runPrecheck(ids: string[]) {
+  runSweep();
+  const targets = records.value.filter(
+    (record) => ids.includes(record.id) && record.status === STATUS_CANDIDATE
+  );
+  const drafts: SitingDraft[] = targets.map((record) => ({
+    id: record.id,
+    station: String(record.station ?? ""),
+    area: String(record.area ?? ""),
+    lat: Number(record.lat),
+    lng: Number(record.lng),
+    plannedDate: String(record.plannedDate ?? "")
+  }));
+
+  const results = precheckBatch(drafts, records.value);
+  const accepted = new Set<string>();
+  const reasons = new Map<string, string>();
+  for (const result of results) {
+    const target = targets.find((record) => record.id === result.draft.id);
+    if (!target) continue;
+    if (result.verdict === "pending") {
+      markPending(target); // 通过 → 待建并占用区域名额
+      accepted.add(target.id);
+    } else {
+      target.rejectReason = result.reason || "预检未通过"; // 拒绝不占名额
+      reasons.set(target.id, result.reason || "预检未通过");
+    }
+  }
+  lastResults.value = { accepted, reasons };
+  persist();
+}
+
+function cancelPending(id: string) {
+  runSweep();
+  const record = records.value.find((item) => item.id === id && item.status === STATUS_PENDING);
+  if (record) {
+    cancelPendingSite(record); // 取消 → 候选，名额立即释放
+    persist();
+  }
+}
+
+function confirmOpen(id: string) {
+  runSweep();
+  const record = records.value.find((item) => item.id === id && item.status === STATUS_PENDING);
+  if (record) {
+    openSite(record); // 确认开业 → 营业中
+    persist();
+  }
+}
+
+function removeCandidate(id: string) {
+  records.value = records.value.filter(
+    (record) => !(record.id === id && record.status === STATUS_CANDIDATE)
+  );
   persist();
 }
 </script>
@@ -249,7 +333,14 @@ function remove(id: string) {
               </div>
               <p class="note">{{ record.notes }}</p>
               <div class="actions">
-                <button type="button" @click="flow(record)">流转状态</button>
+                <button
+                  type="button"
+                  :disabled="isSitingRecord(record)"
+                  :title="isSitingRecord(record) ? '候选/待建站请在选址面板流转' : ''"
+                  @click="flow(record)"
+                >
+                  流转状态
+                </button>
                 <button class="secondary" type="button" @click="navigator.clipboard?.writeText(primaryText(record))">复制摘要</button>
                 <button class="danger" type="button" @click="remove(record.id)">删除</button>
               </div>
@@ -264,6 +355,26 @@ function remove(id: string) {
             </div>
           </div>
         </section>
+      </section>
+
+      <section class="geo">
+        <section class="panel map-panel">
+          <div class="toolbar">
+            <h2>网点地图</h2>
+            <small>标记随上方区域筛选联动</small>
+          </div>
+          <StationMap :stations="filteredRecords" />
+        </section>
+
+        <SitingPanel
+          :stations="records"
+          :last-results="lastResults"
+          @add-draft="addDraft"
+          @precheck="runPrecheck"
+          @cancel-pending="cancelPending"
+          @open="confirmOpen"
+          @remove-candidate="removeCandidate"
+        />
       </section>
     </div>
   </main>
