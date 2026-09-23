@@ -258,3 +258,191 @@ textarea {
   .metrics { grid-template-columns: 1fr; }
   .details { grid-template-columns: 1fr; }
 }
+
+/* ---------------- 新站选址占用 ---------------- */
+
+.siting {
+  margin-top: 22px;
+  background: #fff;
+  border: 1px solid #dfe7f1;
+  border-radius: 8px;
+  padding: 18px;
+}
+
+.siting-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.siting-head h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+}
+
+.siting-rule {
+  margin: 0;
+  max-width: 760px;
+  color: #5b667a;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.quota-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.quota-chip {
+  border-radius: 999px;
+  border: 1px solid #cfd8e5;
+  background: #f3f8f6;
+  color: #14724f;
+  font-size: 13px;
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+
+.quota-chip.full {
+  border-color: #c84b31;
+  background: #fdeee9;
+  color: #c84b31;
+}
+
+.siting-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) 1fr 1fr;
+  gap: 14px;
+}
+
+.siting-grid .panel {
+  background: #fbfcfe;
+  padding: 14px;
+}
+
+.panel h3 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
+.siting-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 520px;
+  overflow-y: auto;
+}
+
+.siting-col-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.siting-col-head h3 {
+  margin: 0;
+}
+
+.siting-card {
+  border: 1px solid #dfe7f1;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff;
+}
+
+.coord-hint {
+  margin: 0;
+  font-size: 12px;
+  color: #176b87;
+}
+
+.form-error,
+.reject-reason {
+  margin: 0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.form-error,
+.reject-reason {
+  background: #fdeee9;
+  color: #c84b31;
+}
+
+.precheck-summary {
+  margin: 0 0 4px;
+  background: #eef5fb;
+  color: #176b87;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+button.active {
+  background: #14724f;
+}
+
+.status-pending {
+  background: #e7f1f5;
+  color: #176b87;
+}
+
+.status-candidate {
+  background: #fdf5dc;
+  color: #9a6b00;
+}
+
+.status-overdue {
+  background: #fdeee9;
+  color: #c84b31;
+}
+
+.map-panel {
+  margin-top: 16px;
+}
+
+.map-panel .toolbar h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.legend {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: #536078;
+}
+
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #cfd8e5;
+}
+
+.legend-dot-ring {
+  background: #fff !important;
+  border: 3px solid #e0a800 !important;
+  box-shadow: none;
+}
+
+@media (max-width: 980px) {
+  .siting-grid { grid-template-columns: 1fr; }
+}
+
